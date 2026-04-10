@@ -1,0 +1,135 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user of the application",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The unique identifier for the user"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "The user's email address"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "The user's display name"
+        },
+        "photoURL": {
+          "type": "string",
+          "format": "uri",
+          "description": "The user's profile picture URL"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The time the user was created"
+        }
+      },
+      "required": ["uid", "email", "createdAt"]
+    },
+    "Case": {
+      "title": "Case",
+      "description": "A legal case registered by a client",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The unique identifier for the case"
+        },
+        "clientId": {
+          "type": "string",
+          "description": "The UID of the client who registered the case"
+        },
+        "title": {
+          "type": "string",
+          "description": "The title of the case"
+        },
+        "description": {
+          "type": "string",
+          "description": "The description of the case"
+        },
+        "complexity": {
+          "type": "string",
+          "enum": ["low", "medium", "high"],
+          "description": "The complexity of the case"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["open", "accepted", "closed"],
+          "description": "The status of the case"
+        },
+        "advocateId": {
+          "type": "string",
+          "description": "The UID of the advocate who accepted the case"
+        },
+        "proposedCharge": {
+          "type": "number",
+          "description": "The proposed charge for the case"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The time the case was created"
+        }
+      },
+      "required": ["id", "clientId", "title", "description", "complexity", "status", "proposedCharge", "createdAt"]
+    },
+    "AdvocateProfile": {
+      "title": "Advocate Profile",
+      "description": "Public profile for an advocate, including points and specialization",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The unique identifier for the advocate"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "The advocate's display name"
+        },
+        "photoURL": {
+          "type": "string",
+          "format": "uri",
+          "description": "The advocate's profile picture URL"
+        },
+        "bio": {
+          "type": "string",
+          "description": "The advocate's biography"
+        },
+        "specialization": {
+          "type": "string",
+          "description": "The advocate's legal specialization"
+        },
+        "points": {
+          "type": "number",
+          "description": "Points awarded for solving cases"
+        }
+      },
+      "required": ["uid", "displayName", "points"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/User"
+      },
+      "description": "Stores user profiles"
+    },
+    "/cases/{caseId}": {
+      "schema": {
+        "$ref": "#/entities/Case"
+      },
+      "description": "Stores legal cases"
+    },
+    "/advocate_profiles/{userId}": {
+      "schema": {
+        "$ref": "#/entities/AdvocateProfile"
+      },
+      "description": "Stores public advocate profiles"
+    }
+  }
+}

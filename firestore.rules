@@ -1,0 +1,161 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId}
+    // Fields:
+    //   - uid: string (required, immutable) - The user's unique ID
+    //   - email: string (required, immutable) - The user's email
+    //   - displayName: string (optional) - The user's display name
+    //   - photoURL: string (optional) - The user's profile picture URL
+    //   - createdAt: timestamp (required, immutable) - The time the user was created
+    //
+    // Collection: cases
+    // Document ID: {caseId}
+    // Fields:
+    //   - id: string (required, immutable)
+    //   - clientId: string (required, immutable)
+    //   - title: string (required)
+    //   - description: string (required)
+    //   - complexity: string (required)
+    //   - status: string (required)
+    //   - advocateId: string (optional)
+    //   - proposedCharge: number (required)
+    //   - createdAt: timestamp (required, immutable)
+    //
+    // Collection: advocate_profiles
+    // Document ID: {userId}
+    // Fields:
+    //   - uid: string (required, immutable)
+    //   - displayName: string (required)
+    //   - photoURL: string (optional)
+    //   - bio: string (optional)
+    //   - specialization: string (optional)
+    //   - points: number (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function uidUnchanged() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == request.auth.uid;
+    }
+    
+    function uidNotModified() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == resource.data.uid;
+    }
+    
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+    
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+    
+    function isValidUrl(url) {
+      return url is string && (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+    
+    function isValidOptionalString(field, minLen, maxLen) {
+      return !(field in request.resource.data) ||
+             (request.resource.data[field] is string &&
+              request.resource.data[field].size() >= minLen &&
+              request.resource.data[field].size() <= maxLen);
+    }
+
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasRequiredFields(['uid', 'email', 'createdAt']) &&
+             data.uid is string && data.uid.size() > 0 && data.uid.size() < 100 &&
+             isValidEmail(data.email) &&
+             data.createdAt is timestamp &&
+             isValidOptionalString('displayName', 1, 100) &&
+             (!( 'photoURL' in data ) || isValidUrl(data.photoURL));
+    }
+
+    function isValidCase(data) {
+      return hasRequiredFields(['id', 'clientId', 'title', 'description', 'complexity', 'status', 'proposedCharge', 'createdAt']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
+             data.clientId is string && data.clientId.size() > 0 && data.clientId.size() < 100 &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.description is string && data.description.size() > 0 && data.description.size() < 5000 &&
+             data.complexity in ['low', 'medium', 'high'] &&
+             data.status in ['open', 'accepted', 'closed'] &&
+             data.proposedCharge is number && data.proposedCharge >= 0 &&
+             data.createdAt is timestamp &&
+             isValidOptionalString('advocateId', 1, 100);
+    }
+
+    function isValidAdvocateProfile(data) {
+      return hasRequiredFields(['uid', 'displayName', 'points']) &&
+             data.uid is string && data.uid.size() > 0 && data.uid.size() < 100 &&
+             data.displayName is string && data.displayName.size() > 0 && data.displayName.size() < 100 &&
+             data.points is number && data.points >= 0 &&
+             isValidOptionalString('bio', 0, 1000) &&
+             isValidOptionalString('specialization', 0, 100) &&
+             (!( 'photoURL' in data ) || isValidUrl(data.photoURL));
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(request.resource.data) && uidUnchanged();
+      allow update: if isOwner(userId) && isValidUser(request.resource.data) && uidNotModified() && areImmutableFieldsUnchanged(['createdAt', 'email']);
+      allow delete: if false; // Users shouldn't be able to delete their own profile directly without a cloud function
+    }
+
+    match /advocate_profiles/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId) && isValidAdvocateProfile(request.resource.data) && uidUnchanged();
+      allow update: if isOwner(userId) && isValidAdvocateProfile(request.resource.data) && uidNotModified();
+      allow delete: if false;
+    }
+
+    match /cases/{caseId} {
+      allow read: if isAuthenticated() && (
+        resource.data.clientId == request.auth.uid || 
+        resource.data.status == 'open' || 
+        resource.data.advocateId == request.auth.uid
+      );
+      
+      allow create: if isAuthenticated() && 
+                    request.resource.data.clientId == request.auth.uid && 
+                    request.resource.data.status == 'open' &&
+                    isValidCase(request.resource.data);
+                    
+      allow update: if isAuthenticated() && isValidCase(request.resource.data) && (
+        (resource.data.clientId == request.auth.uid && resource.data.status == 'open' && areImmutableFieldsUnchanged(['id', 'clientId', 'createdAt'])) ||
+        (resource.data.status == 'open' && request.resource.data.status == 'accepted' && request.resource.data.advocateId == request.auth.uid && areImmutableFieldsUnchanged(['id', 'clientId', 'title', 'description', 'complexity', 'proposedCharge', 'createdAt'])) ||
+        (resource.data.status == 'accepted' && request.resource.data.status == 'closed' && resource.data.advocateId == request.auth.uid && areImmutableFieldsUnchanged(['id', 'clientId', 'title', 'description', 'complexity', 'proposedCharge', 'createdAt', 'advocateId']))
+      );
+      
+      allow delete: if isAuthenticated() && resource.data.clientId == request.auth.uid && resource.data.status == 'open';
+    }
+  }
+}
